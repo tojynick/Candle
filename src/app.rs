@@ -2,6 +2,7 @@ use egui_wgpu::wgpu::SurfaceError;
 use egui_wgpu::{wgpu, ScreenDescriptor};
 use gui_renderer::GUIRenderer;
 use std::sync::Arc;
+use std::time::Duration;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize};
 use winit::event::WindowEvent;

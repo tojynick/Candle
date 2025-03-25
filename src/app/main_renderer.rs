@@ -1,4 +1,10 @@
-use egui_wgpu::wgpu::{self, CommandEncoder, TextureView};
+use egui_wgpu::wgpu::{self, util::DeviceExt, CommandEncoder, TextureView};
+use texture::Texture;
+use vertex::Vertex;
+
+mod vertex;
+mod texture;
+mod renderer_utils;
 
 pub struct MainRenderer {
     pub device: wgpu::Device,
@@ -6,6 +12,11 @@ pub struct MainRenderer {
     pub surface_config: wgpu::SurfaceConfiguration,
     pub surface: wgpu::Surface<'static>,
     pub render_pipeline: wgpu::RenderPipeline,
+
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub amount_of_vertices: u32,
+    pub diffuse_bind_group: wgpu::BindGroup,
 }
 
 impl MainRenderer {
@@ -17,61 +28,51 @@ impl MainRenderer {
         height: u32,
     ) -> Self {
 
-        // Get device
-        let power_pref = wgpu::PowerPreference::HighPerformance;
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: power_pref,
-                force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
-            })
-            .await
-            .expect("Failed to find an appropriate adapter");
+        let (adapter, device, queue) = renderer_utils::get_device(instance, &surface).await;
+        let surface_config = renderer_utils::configure_surface(&surface, width, height, &device, &adapter);
 
-        let features = wgpu::Features::empty();
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: features,
-                    required_limits: Default::default(),
-                    memory_hints: Default::default(),
-                },
-                None,
-            )
-            .await
-            .expect("Failed to create device");
-
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .expect("failed to select proper surface texture format!");
-
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Immediate,
-            desired_maximum_frame_latency: 0,
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-        };
-
-        surface.configure(&device, &surface_config);
+        let mut diffuse_texture = Texture::new("Checker.png", "Diffuse", &device, &queue);
+        let diffuse_texture_bind_group = diffuse_texture.create_bind_group(&device);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shader.wgsl").into()),
         });
 
+
+        const VERTICES: &[Vertex] = &[
+            Vertex { position: [0.0, 0.5, 0.0], uv: [0.5, 0.0] },
+            Vertex { position: [-0.5, -0.5, 0.0], uv: [0.0, 1.0] },
+            Vertex { position: [0.5, -0.5, 0.0], uv: [1.0, 1.0] },
+        ];
+
+        const INDICES: &[u16] = &[
+            0, 1, 2
+        ];
+
+        let amount_of_vertices = VERTICES.len() as u32;
+
+        let vertex_buffer_description = &wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        };
+
+        let vertex_buffer = device.create_buffer_init(vertex_buffer_description);
+
+        let index_buffer_description = &wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        };
+
+        let index_buffer = device.create_buffer_init(index_buffer_description);
+
+
         let render_pipeline_layout = 
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&diffuse_texture.bind_group_layout.unwrap()],
                 push_constant_ranges: &[]
             });
 
@@ -81,7 +82,7 @@ impl MainRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vertex",
-                buffers: &[],
+                buffers: &[Vertex::get_buffer_layout()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -119,6 +120,10 @@ impl MainRenderer {
             surface,
             surface_config,
             render_pipeline,
+            vertex_buffer,
+            index_buffer,
+            amount_of_vertices,
+            diffuse_bind_group: diffuse_texture_bind_group,
         }
     }
 
@@ -150,8 +155,11 @@ impl MainRenderer {
         });
 
         render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        render_pass.draw(0..3, 0..1);
+        render_pass.draw_indexed(0..self.amount_of_vertices, 0, 0..1);
            
     }
 }

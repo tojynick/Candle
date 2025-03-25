@@ -4,12 +4,10 @@ pub mod app;
 pub mod utilities;
 
 
-fn main() -> anyhow::Result<()>{
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        pollster::block_on(run())?;
-        Ok(())
-    }
+fn main() -> anyhow::Result<()> {
+
+    pollster::block_on(run())?;
+    Ok(())
 }
 
 

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 pub struct FPSCounter {
     last_frame_time: Instant,
-    fps_samples: [f32; 500],
+    fps_samples: [f32; 60],
     sample_index: usize,
 
     pub fps: f32
@@ -14,7 +14,7 @@ impl FPSCounter {
 
         Self {
             last_frame_time: Instant::now(),
-            fps_samples: [0.0; 500],
+            fps_samples: [0.0; 60],
             sample_index: 0,
             fps: 0.0,
         }
